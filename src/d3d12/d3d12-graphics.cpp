@@ -40,9 +40,11 @@ namespace nvrhi::d3d12
             return nullptr;
         }
     }
-    
-    RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const GraphicsPipelineDesc & state, RootSignature* pRS, const FramebufferInfo& fbinfo) const
+
+    RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const GraphicsPipelineDesc & state, RootSignature* pRS, IRenderPass* renderPass) const
     {
+        RenderPassDesc const& renderPassDesc = renderPass->getDesc();
+
         if (state.renderState.singlePassStereo.enabled && !m_SinglePassStereoSupported)
         {
             m_Context.error("Single-pass stereo is not supported by this device");
@@ -70,12 +72,12 @@ namespace nvrhi::d3d12
 
 
         TranslateBlendState(state.renderState.blendState, desc.BlendState);
-        
+
 
         const DepthStencilState& depthState = state.renderState.depthStencilState;
         TranslateDepthStencilState(depthState, desc.DepthStencilState);
 
-        if ((depthState.depthTestEnable || depthState.stencilEnable) && fbinfo.depthFormat == Format::UNKNOWN)
+        if ((depthState.depthTestEnable || depthState.stencilEnable) && renderPassDesc.depthAttachment.format == Format::UNKNOWN)
         {
             desc.DepthStencilState.DepthEnable = FALSE;
             desc.DepthStencilState.StencilEnable = FALSE;
@@ -87,29 +89,29 @@ namespace nvrhi::d3d12
 
         switch (state.primType)
         {
-        case PrimitiveType::PointList:
-            desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-            break;
-        case PrimitiveType::LineList:
-            desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-            break;
-        case PrimitiveType::TriangleList:
-        case PrimitiveType::TriangleStrip:
-            desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-            break;
-        case PrimitiveType::PatchList:
-            desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-            break;
+            case PrimitiveType::PointList:
+                desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+                break;
+            case PrimitiveType::LineList:
+                desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+                break;
+            case PrimitiveType::TriangleList:
+            case PrimitiveType::TriangleStrip:
+                desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+                break;
+            case PrimitiveType::PatchList:
+                desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+                break;
         }
 
-        desc.DSVFormat = getDxgiFormatMapping(fbinfo.depthFormat).rtvFormat;
+        desc.DSVFormat = getDxgiFormatMapping(renderPassDesc.depthAttachment.format).rtvFormat;
 
-        desc.SampleDesc.Count = fbinfo.sampleCount;
-        desc.SampleDesc.Quality = fbinfo.sampleQuality;
+        desc.SampleDesc.Count = renderPassDesc.sampleCount;
+        desc.SampleDesc.Quality = renderPassDesc.sampleQuality;
 
-        for (uint32_t i = 0; i < uint32_t(fbinfo.colorFormats.size()); i++)
+        for (uint32_t i = 0; i < uint32_t(renderPassDesc.colorAttachments.size()); i++)
         {
-            desc.RTVFormats[i] = getDxgiFormatMapping(fbinfo.colorFormats[i]).rtvFormat;
+            desc.RTVFormats[i] = getDxgiFormatMapping(renderPassDesc.colorAttachments[i].format).rtvFormat;
         }
 
         InputLayout* inputLayout = checked_cast<InputLayout*>(state.inputLayout.Get());
@@ -119,7 +121,7 @@ namespace nvrhi::d3d12
             desc.InputLayout.pInputElementDescs = &(inputLayout->inputElements[0]);
         }
 
-        desc.NumRenderTargets = uint32_t(fbinfo.colorFormats.size());
+        desc.NumRenderTargets = uint32_t(renderPassDesc.colorAttachments.size());
         desc.SampleMask = ~0u;
 
         RefCountPtr<ID3D12PipelineState> pipelineState;
@@ -174,17 +176,16 @@ namespace nvrhi::d3d12
         return pipelineState;
     }
 
-    
-    GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb)
+    GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass)
     {
         RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, desc.inputLayout != nullptr);
 
-        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fb->getFramebufferInfo());
+        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, renderPass);
 
-        return createHandleForNativeGraphicsPipeline(pRS, pPSO, desc, fb->getFramebufferInfo());
+        return createHandleForNativeGraphicsPipeline(pRS, pPSO, desc, renderPass);
     }
 
-    nvrhi::GraphicsPipelineHandle Device::createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, const FramebufferInfo& framebufferInfo)
+    nvrhi::GraphicsPipelineHandle Device::createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, IRenderPass* renderPass)
     {
         if (rootSignature == nullptr)
             return nullptr;
@@ -194,37 +195,80 @@ namespace nvrhi::d3d12
 
         GraphicsPipeline *pso = new GraphicsPipeline();
         pso->desc = desc;
-        pso->framebufferInfo = framebufferInfo;
+        pso->framebufferInfo = FramebufferInfo(renderPass->getDesc(), 0, 0);// framebufferInfo; //!!!
         pso->rootSignature = checked_cast<RootSignature*>(rootSignature);
         pso->pipelineState = pipelineState;
-        pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(pso->framebufferInfo.colorFormats.size()));
-        
+        pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(renderPass->getDesc().colorAttachments.size()));
+
         return GraphicsPipelineHandle::Create(pso);
     }
 
-    FramebufferHandle Device::createFramebuffer(const FramebufferDesc& desc)
+    RenderPassHandle Device::createRenderPass(const RenderPassDesc& desc)
+    {
+        RenderPass *rp = new RenderPass;
+        rp->desc = desc;
+        return RenderPassHandle::Create(rp);
+    }
+
+    FramebufferDesc makeFramebufferDesc(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass)
+    {
+        FramebufferDesc desc;
+
+        RenderPass* rp = checked_cast<RenderPass*>(renderPass);
+
+        desc.colorAttachments.resize(colorAttachments.size());
+        for (uint32_t i = 0 ; i < colorAttachments.size() ; i++)
+        {
+            desc.colorAttachments[i].texture = colorAttachments[i];
+            desc.colorAttachments[i].subresources = rp->desc.colorAttachments[i].subresources;
+            desc.colorAttachments[i].format = rp->desc.colorAttachments[i].format;
+            desc.colorAttachments[i].isReadOnly = rp->desc.colorAttachments[i].isReadOnly;
+        }
+
+        if (depthStencilAttachment)
+        {
+            desc.depthAttachment.texture = depthStencilAttachment;
+            desc.depthAttachment.subresources = rp->desc.depthAttachment.subresources;
+            desc.depthAttachment.format = rp->desc.depthAttachment.format;
+            desc.depthAttachment.isReadOnly = rp->desc.depthAttachment.isReadOnly;
+        }
+
+        if (shadingRateAttachment)
+        {
+            desc.shadingRateAttachment.texture = shadingRateAttachment;
+            desc.shadingRateAttachment.subresources = rp->desc.shadingRateAttachment.subresources;
+            desc.shadingRateAttachment.format = rp->desc.shadingRateAttachment.format;
+            desc.shadingRateAttachment.isReadOnly = rp->desc.shadingRateAttachment.isReadOnly;
+        }
+
+        return desc;
+    }
+
+    FramebufferHandle Device::createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass)
     {
         Framebuffer *fb = new Framebuffer(m_Resources);
-        fb->desc = desc;
-        fb->framebufferInfo = FramebufferInfo(desc);
+        fb->desc = makeFramebufferDesc(colorAttachments, depthStencilAttachment, shadingRateAttachment, renderPass);
+        fb->framebufferInfo = FramebufferInfo(fb->desc);
 
-        if (!desc.colorAttachments.empty())
+        RenderPass* rp = checked_cast<RenderPass*>(renderPass);
+
+        if (!colorAttachments.empty())
         {
-            Texture* texture = checked_cast<Texture*>(desc.colorAttachments[0].texture);
+            Texture* texture = checked_cast<Texture*>(colorAttachments[0]);
             fb->rtWidth = texture->desc.width;
             fb->rtHeight = texture->desc.height;
-        } else if (desc.depthAttachment.valid())
+        } else if (depthStencilAttachment)
         {
-            Texture* texture = checked_cast<Texture*>(desc.depthAttachment.texture);
+            Texture* texture = checked_cast<Texture*>(depthStencilAttachment);
             fb->rtWidth = texture->desc.width;
             fb->rtHeight = texture->desc.height;
         }
 
-        for (size_t rt = 0; rt < desc.colorAttachments.size(); rt++)
+        for (size_t rt = 0; rt < colorAttachments.size(); rt++)
         {
-            auto& attachment = desc.colorAttachments[rt];
+            auto& attachment = rp->desc.colorAttachments[rt];
 
-            Texture* texture = checked_cast<Texture*>(attachment.texture);
+            Texture* texture = checked_cast<Texture*>(colorAttachments[rt]);
             assert(texture->desc.width == fb->rtWidth);
             assert(texture->desc.height == fb->rtHeight);
 
@@ -237,16 +281,16 @@ namespace nvrhi::d3d12
             fb->textures.push_back(texture);
         }
 
-        if (desc.depthAttachment.valid())
+        if (depthStencilAttachment)
         {
-            Texture* texture = checked_cast<Texture*>(desc.depthAttachment.texture);
+            Texture* texture = checked_cast<Texture*>(depthStencilAttachment);
             assert(texture->desc.width == fb->rtWidth);
             assert(texture->desc.height == fb->rtHeight);
 
             DescriptorIndex index = m_Resources.depthStencilViewHeap.allocateDescriptor();
 
             const D3D12_CPU_DESCRIPTOR_HANDLE descriptorHandle = m_Resources.depthStencilViewHeap.getCpuHandle(index);
-            texture->createDSV(descriptorHandle.ptr, desc.depthAttachment.subresources, desc.depthAttachment.isReadOnly);
+            texture->createDSV(descriptorHandle.ptr, rp->desc.depthAttachment.subresources, rp->desc.depthAttachment.isReadOnly);
 
             fb->DSV = index;
             fb->textures.push_back(texture);

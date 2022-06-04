@@ -236,7 +236,7 @@ namespace nvrhi::validation
         bool validateBindingSetItem(const BindingSetItem& binding, bool isDescriptorTable, std::stringstream& errorStream) const;
         bool validatePipelineBindingLayouts(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& bindingLayouts, const std::vector<IShader*>& shaders, GraphicsAPI api) const;
         bool validateShaderType(ShaderType expected, const ShaderDesc& shaderDesc, const char* function) const;
-        bool validateRenderState(const RenderState& renderState, IFramebuffer* fb) const;
+        bool validateRenderState(const RenderState& renderState, IRenderPass* renderPass) const;
 
     public:
 
@@ -289,13 +289,14 @@ namespace nvrhi::validation
 
         GraphicsAPI getGraphicsAPI() override;
 
-        FramebufferHandle createFramebuffer(const FramebufferDesc& desc) override;
+        FramebufferHandle createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass) override;
+        RenderPassHandle createRenderPass(const RenderPassDesc& desc) override;
 
-        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) override;
+        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass) override;
 
         ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) override;
 
-        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) override;
+        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass) override;
 
         rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) override;
 

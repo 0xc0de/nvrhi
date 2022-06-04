@@ -473,6 +473,15 @@ namespace nvrhi::d3d12
         DeviceResources& m_Resources;
     };
 
+    class RenderPass : public RefCounter<IRenderPass>
+    {
+    public:
+        RenderPassDesc desc;
+
+        RenderPass() = default;
+        const RenderPassDesc& getDesc() const override { return desc; }
+    };
+
     struct DX12_ViewportState
     {
         UINT numViewports = 0;
@@ -513,7 +522,7 @@ namespace nvrhi::d3d12
     {
     public:
         MeshletPipelineDesc desc;
-        FramebufferInfo framebufferInfo;
+        //FramebufferInfo framebufferInfo;
 
         RefCountPtr<RootSignature> rootSignature;
         RefCountPtr<ID3D12PipelineState> pipelineState;
@@ -523,7 +532,7 @@ namespace nvrhi::d3d12
         bool requiresBlendFactor = false;
         
         const MeshletPipelineDesc& getDesc() const override { return desc; }
-        const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
+        //const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
         Object getNativeObject(ObjectType objectType) override;
     };
     
@@ -1035,13 +1044,14 @@ namespace nvrhi::d3d12
 
         GraphicsAPI getGraphicsAPI() override;
 
-        FramebufferHandle createFramebuffer(const FramebufferDesc& desc) override;
+        FramebufferHandle createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass) override;
+        RenderPassHandle createRenderPass(const RenderPassDesc& desc) override;
         
-        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) override;
+        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass) override;
         
         ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) override;
 
-        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) override;
+        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass) override;
 
         rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) override;
 
@@ -1071,8 +1081,8 @@ namespace nvrhi::d3d12
         // d3d12::IDevice implementation
 
         RootSignatureHandle buildRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout, bool isLocal, const D3D12_ROOT_PARAMETER1* pCustomParameters = nullptr, uint32_t numCustomParameters = 0) override;
-        GraphicsPipelineHandle createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, const FramebufferInfo& framebufferInfo) override;
-        MeshletPipelineHandle createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, const FramebufferInfo& framebufferInfo) override;
+        GraphicsPipelineHandle createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, IRenderPass* renderPass) override;
+        MeshletPipelineHandle createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, IRenderPass* renderPass) override;
         IDescriptorHeap* getDescriptorHeap(DescriptorHeapType heapType) override;
 
         // Internal interface
@@ -1104,8 +1114,9 @@ namespace nvrhi::d3d12
 
         RefCountPtr<RootSignature> getRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout);
         RefCountPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
+        RefCountPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, IRenderPass* renderPass) const;
         RefCountPtr<ID3D12PipelineState> createPipelineState(const ComputePipelineDesc& desc, RootSignature* pRS) const;
-        RefCountPtr<ID3D12PipelineState> createPipelineState(const MeshletPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
+        RefCountPtr<ID3D12PipelineState> createPipelineState(const MeshletPipelineDesc& desc, RootSignature* pRS, IRenderPass* renderPass) const;
     };
 
 } // namespace nvrhi::d3d12

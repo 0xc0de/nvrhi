@@ -131,30 +131,30 @@ namespace nvrhi::vulkan
     {
         switch(d.sampleCount)
         {
-            case 1:
-                return vk::SampleCountFlagBits::e1;
+        case 1:
+            return vk::SampleCountFlagBits::e1;
 
-            case 2:
-                return vk::SampleCountFlagBits::e2;
+        case 2:
+            return vk::SampleCountFlagBits::e2;
 
-            case 4:
-                return vk::SampleCountFlagBits::e4;
+        case 4:
+            return vk::SampleCountFlagBits::e4;
 
-            case 8:
-                return vk::SampleCountFlagBits::e8;
+        case 8:
+            return vk::SampleCountFlagBits::e8;
 
-            case 16:
-                return vk::SampleCountFlagBits::e16;
+        case 16:
+            return vk::SampleCountFlagBits::e16;
 
-            case 32:
-                return vk::SampleCountFlagBits::e32;
+        case 32:
+            return vk::SampleCountFlagBits::e32;
 
-            case 64:
-                return vk::SampleCountFlagBits::e64;
+        case 64:
+            return vk::SampleCountFlagBits::e64;
 
-            default:
-                utils::InvalidEnum();
-                return vk::SampleCountFlagBits::e1;
+        default:
+            utils::InvalidEnum();
+            return vk::SampleCountFlagBits::e1;
         }
     }
 

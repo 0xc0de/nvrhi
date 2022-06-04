@@ -179,9 +179,20 @@ namespace nvrhi::d3d11
         FramebufferInfo framebufferInfo;
         static_vector<RefCountPtr<ID3D11RenderTargetView>, c_MaxRenderTargets> RTVs;
         RefCountPtr<ID3D11DepthStencilView> DSV;
+
+        std::vector<ResourceHandle> resources;
         
         const FramebufferDesc& getDesc() const override { return desc; }
         const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
+    };
+
+    class RenderPass : public RefCounter<IRenderPass>
+    {
+    public:
+        RenderPassDesc desc;
+
+        RenderPass() = default;
+        const RenderPassDesc& getDesc() const override { return desc; }
     };
 
     struct DX11_ViewportState
@@ -453,13 +464,14 @@ namespace nvrhi::d3d11
 
         GraphicsAPI getGraphicsAPI() override;
 
-        FramebufferHandle createFramebuffer(const FramebufferDesc& desc) override;
+        FramebufferHandle createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass) override;
+        RenderPassHandle createRenderPass(const RenderPassDesc& desc) override;
 
-        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) override;
+        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass) override;
 
         ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) override;
 
-        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) override;
+        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass) override;
 
         rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) override;
 

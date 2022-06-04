@@ -30,27 +30,72 @@
 namespace nvrhi::d3d11
 {
 
-    FramebufferHandle Device::createFramebuffer(const FramebufferDesc& desc)
+    FramebufferDesc makeFramebufferDesc(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass)
+    {
+        FramebufferDesc desc;
+
+        RenderPass* rp = checked_cast<RenderPass*>(renderPass);
+
+        desc.colorAttachments.resize(colorAttachments.size());
+        for (uint32_t i = 0 ; i < colorAttachments.size() ; i++)
+        {
+            desc.colorAttachments[i].texture = colorAttachments[i];
+            desc.colorAttachments[i].subresources = rp->desc.colorAttachments[i].subresources;
+            desc.colorAttachments[i].format = rp->desc.colorAttachments[i].format;
+            desc.colorAttachments[i].isReadOnly = rp->desc.colorAttachments[i].isReadOnly;
+        }
+
+        if (depthStencilAttachment)
+        {
+            desc.depthAttachment.texture = depthStencilAttachment;
+            desc.depthAttachment.subresources = rp->desc.depthAttachment.subresources;
+            desc.depthAttachment.format = rp->desc.depthAttachment.format;
+            desc.depthAttachment.isReadOnly = rp->desc.depthAttachment.isReadOnly;
+        }
+
+        if (shadingRateAttachment)
+        {
+            desc.shadingRateAttachment.texture = shadingRateAttachment;
+            desc.shadingRateAttachment.subresources = rp->desc.shadingRateAttachment.subresources;
+            desc.shadingRateAttachment.format = rp->desc.shadingRateAttachment.format;
+            desc.shadingRateAttachment.isReadOnly = rp->desc.shadingRateAttachment.isReadOnly;
+        }
+
+        return desc;
+    }
+
+    FramebufferHandle Device::createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass)
     {
         Framebuffer *ret = new Framebuffer();
-        ret->desc = desc;
-        ret->framebufferInfo = FramebufferInfo(desc);
+        ret->desc = makeFramebufferDesc(colorAttachments, depthStencilAttachment, shadingRateAttachment, renderPass);
+        ret->framebufferInfo = FramebufferInfo(ret->desc);
 
-        for(auto colorAttachment : desc.colorAttachments)
+        for(auto colorAttachment : ret->desc.colorAttachments)
         {
             assert(colorAttachment.valid());
             ret->RTVs.push_back(getRTVForAttachment(colorAttachment));
+
+            ret->resources.push_back(colorAttachment.texture);
         }
 
-        if (desc.depthAttachment.valid())
+        if (ret->desc.depthAttachment.valid())
         {
-            ret->DSV = getDSVForAttachment(desc.depthAttachment);
+            ret->DSV = getDSVForAttachment(ret->desc.depthAttachment);
+
+            ret->resources.push_back(ret->desc.depthAttachment.texture);
         }
 
         return FramebufferHandle::Create(ret);
     }
+
+    RenderPassHandle Device::createRenderPass(const RenderPassDesc& desc)
+    {
+        RenderPass *rp = new RenderPass;
+        rp->desc = desc;
+        return RenderPassHandle::Create(rp);
+    }
     
-    GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb)
+    GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass)
     {
         const RenderState& renderState = desc.renderState;
 
@@ -62,7 +107,7 @@ namespace nvrhi::d3d11
 
         GraphicsPipeline *pso = new GraphicsPipeline();
         pso->desc = desc;
-        pso->framebufferInfo = fb->getFramebufferInfo();
+        pso->framebufferInfo = FramebufferInfo(renderPass->getDesc(), 0, 0);// framebufferInfo; //!!!
 
         pso->primitiveTopology = convertPrimType(desc.primType, desc.patchControlPoints);
         pso->inputLayout = checked_cast<InputLayout*>(desc.inputLayout.Get());

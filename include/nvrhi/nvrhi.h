@@ -1150,7 +1150,50 @@ namespace nvrhi
     };
 
     typedef RefCountPtr<ISampler> SamplerHandle;
-    
+
+    //////////////////////////////////////////////////////////////////////////
+    // Render Pass
+    //////////////////////////////////////////////////////////////////////////
+
+    struct RenderPassAttachment
+    {
+        TextureSubresourceSet subresources = TextureSubresourceSet(0, 1, 0, 1);
+        Format format = Format::UNKNOWN;
+        bool isReadOnly = false;
+
+        // TODO: load/store ops
+
+        constexpr RenderPassAttachment& setSubresources(TextureSubresourceSet value) { subresources = value; return *this; }
+        constexpr RenderPassAttachment& setArraySlice(ArraySlice index) { subresources.baseArraySlice = index; subresources.numArraySlices = 1; return *this; }
+        constexpr RenderPassAttachment& setArraySliceRange(ArraySlice index, ArraySlice count) { subresources.baseArraySlice = index; subresources.numArraySlices = count; return *this; }
+        constexpr RenderPassAttachment& setMipLevel(MipLevel level) { subresources.baseMipLevel = level; subresources.numMipLevels = 1; return *this; }
+        constexpr RenderPassAttachment& setFormat(Format f) { format = f; return *this; }
+        constexpr RenderPassAttachment& setReadOnly(bool ro) { isReadOnly = ro; return *this; }
+    };
+
+    struct RenderPassDesc
+    {
+        static_vector<RenderPassAttachment, c_MaxRenderTargets> colorAttachments;
+        RenderPassAttachment depthAttachment;
+        RenderPassAttachment shadingRateAttachment;
+        uint32_t sampleCount = 1;
+        uint32_t sampleQuality = 0;
+
+        RenderPassDesc& addColorAttachment(const RenderPassAttachment& a) { colorAttachments.push_back(a); return *this; }
+        RenderPassDesc& setDepthAttachment(const RenderPassAttachment& d) { depthAttachment = d; return *this; }
+        RenderPassDesc& setShadingRateAttachment(const RenderPassAttachment& d) { shadingRateAttachment = d; return *this; }
+        RenderPassDesc& setSampleCount(uint32_t count) { sampleCount = count; return *this; }
+        RenderPassDesc& setSampleQuality(uint32_t quality) { sampleQuality = quality; return *this; }
+    };
+
+    class IRenderPass : public IResource
+    {
+    public:
+        [[nodiscard]] virtual const RenderPassDesc& getDesc() const = 0;
+    };
+
+    typedef RefCountPtr<IRenderPass> RenderPassHandle;
+
     //////////////////////////////////////////////////////////////////////////
     // Framebuffer
     //////////////////////////////////////////////////////////////////////////
@@ -1201,6 +1244,7 @@ namespace nvrhi
 
         FramebufferInfo() = default;
         NVRHI_API FramebufferInfo(const FramebufferDesc& desc);
+        NVRHI_API FramebufferInfo(const RenderPassDesc& desc, uint32_t w, uint32_t h);
 
         bool operator==(const FramebufferInfo& other) const
         {
@@ -2032,7 +2076,7 @@ namespace nvrhi
     {
     public:
         [[nodiscard]] virtual const MeshletPipelineDesc& getDesc() const = 0;
-        [[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
+        //[[nodiscard]] virtual const FramebufferInfo& getFramebufferInfo() const = 0;
     };
 
     typedef RefCountPtr<IMeshletPipeline> MeshletPipelineHandle;
@@ -2510,13 +2554,14 @@ namespace nvrhi
         // Returns the API kind that the RHI backend is running on top of.
         virtual GraphicsAPI getGraphicsAPI() = 0;
         
-        virtual FramebufferHandle createFramebuffer(const FramebufferDesc& desc) = 0;
+        virtual FramebufferHandle createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass) = 0;
+        virtual RenderPassHandle createRenderPass(const RenderPassDesc& desc) = 0;
         
-        virtual GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) = 0;
+        virtual GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass) = 0;
         
         virtual ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) = 0;
 
-        virtual MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) = 0;
+        virtual MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass) = 0;
 
         virtual rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) = 0;
         
@@ -2639,8 +2684,8 @@ namespace std
             for (auto format : s.colorFormats)
                 nvrhi::hash_combine(hash, format);
             nvrhi::hash_combine(hash, s.depthFormat);
-            nvrhi::hash_combine(hash, s.width);
-            nvrhi::hash_combine(hash, s.height);
+            //nvrhi::hash_combine(hash, s.width);
+            //nvrhi::hash_combine(hash, s.height);
             nvrhi::hash_combine(hash, s.sampleCount);
             nvrhi::hash_combine(hash, s.sampleQuality);
             return hash;

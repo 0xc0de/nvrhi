@@ -29,19 +29,19 @@ namespace nvrhi::vulkan
     template <typename T>
     using attachment_vector = nvrhi::static_vector<T, c_MaxRenderTargets + 1>; // render targets + depth
 
-    MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* _fb)
+    MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass)
     {
         if (!m_Context.extensions.NV_mesh_shader)
             utils::NotSupported();
 
         vk::Result res;
 
-        Framebuffer* fb = checked_cast<Framebuffer*>(_fb);
-        
+        RenderPass* rp = checked_cast<RenderPass*>(renderPass);
+
         MeshletPipeline *pso = new MeshletPipeline(m_Context);
         pso->desc = desc;
-        pso->framebufferInfo = fb->framebufferInfo;
-        
+        //pso->framebufferInfo = FramebufferInfo(rp->desc, 0, 0);// rp->framebufferInfo;
+
         for (const BindingLayoutHandle& _layout : desc.bindingLayouts)
         {
             BindingLayout* layout = checked_cast<BindingLayout*>(_layout.Get());
@@ -77,53 +77,53 @@ namespace nvrhi::vulkan
         // Set up shader stages
         if (desc.AS)
         {
-            shaderStages.push_back(makeShaderStageCreateInfo(AS, 
+            shaderStages.push_back(makeShaderStageCreateInfo(AS,
                 specInfos, specMapEntries, specData));
             pso->shaderMask = pso->shaderMask | ShaderType::Vertex;
         }
 
         if (desc.MS)
         {
-            shaderStages.push_back(makeShaderStageCreateInfo(MS, 
+            shaderStages.push_back(makeShaderStageCreateInfo(MS,
                 specInfos, specMapEntries, specData));
             pso->shaderMask = pso->shaderMask | ShaderType::Hull;
         }
-        
+
         if (desc.PS)
         {
-            shaderStages.push_back(makeShaderStageCreateInfo(PS, 
+            shaderStages.push_back(makeShaderStageCreateInfo(PS,
                 specInfos, specMapEntries, specData));
             pso->shaderMask = pso->shaderMask | ShaderType::Pixel;
         }
 
         auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo()
-            .setTopology(convertPrimitiveTopology(desc.primType));
-        
+                                 .setTopology(convertPrimitiveTopology(desc.primType));
+
         // fixed function state
         const auto& rasterState = desc.renderState.rasterState;
         const auto& depthStencilState = desc.renderState.depthStencilState;
         const auto& blendState = desc.renderState.blendState;
 
         auto viewportState = vk::PipelineViewportStateCreateInfo()
-            .setViewportCount(1)
-            .setScissorCount(1);
+                                 .setViewportCount(1)
+                                 .setScissorCount(1);
 
         auto rasterizer = vk::PipelineRasterizationStateCreateInfo()
-                            // .setDepthClampEnable(??)
-                            // .setRasterizerDiscardEnable(??)
-                            .setPolygonMode(convertFillMode(rasterState.fillMode))
-                            .setCullMode(convertCullMode(rasterState.cullMode))
-                            .setFrontFace(rasterState.frontCounterClockwise ?
-                                            vk::FrontFace::eCounterClockwise : vk::FrontFace::eClockwise)
-                            .setDepthBiasEnable(rasterState.depthBias ? true : false)
-                            .setDepthBiasConstantFactor(float(rasterState.depthBias))
-                            .setDepthBiasClamp(rasterState.depthBiasClamp)
-                            .setDepthBiasSlopeFactor(rasterState.slopeScaledDepthBias)
-                            .setLineWidth(1.0f);
-        
+                              // .setDepthClampEnable(??)
+                              // .setRasterizerDiscardEnable(??)
+                              .setPolygonMode(convertFillMode(rasterState.fillMode))
+                              .setCullMode(convertCullMode(rasterState.cullMode))
+                              .setFrontFace(rasterState.frontCounterClockwise ?
+                                                                              vk::FrontFace::eCounterClockwise : vk::FrontFace::eClockwise)
+                              .setDepthBiasEnable(rasterState.depthBias ? true : false)
+                              .setDepthBiasConstantFactor(float(rasterState.depthBias))
+                              .setDepthBiasClamp(rasterState.depthBiasClamp)
+                              .setDepthBiasSlopeFactor(rasterState.slopeScaledDepthBias)
+                              .setLineWidth(1.0f);
+
         auto multisample = vk::PipelineMultisampleStateCreateInfo()
-                            .setRasterizationSamples(vk::SampleCountFlagBits(fb->framebufferInfo.sampleCount))
-                            .setAlphaToCoverageEnable(blendState.alphaToCoverageEnable);
+                               .setRasterizationSamples(vk::SampleCountFlagBits(rp->desc.sampleCount))
+                               .setAlphaToCoverageEnable(blendState.alphaToCoverageEnable);
 
         auto depthStencil = vk::PipelineDepthStencilStateCreateInfo()
                                 .setDepthTestEnable(depthStencilState.depthTestEnable)
@@ -155,34 +155,34 @@ namespace nvrhi::vulkan
         }
 
         auto pushConstantRange = vk::PushConstantRange()
-            .setOffset(0)
-            .setSize(pushConstantSize)
-            .setStageFlags(convertShaderTypeToShaderStageFlagBits(pso->shaderMask));
+                                     .setOffset(0)
+                                     .setSize(pushConstantSize)
+                                     .setStageFlags(convertShaderTypeToShaderStageFlagBits(pso->shaderMask));
 
         auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
-                                    .setSetLayoutCount(uint32_t(descriptorSetLayouts.size()))
-                                    .setPSetLayouts(descriptorSetLayouts.data())
-                                    .setPushConstantRangeCount(pushConstantSize ? 1 : 0)
-                                    .setPPushConstantRanges(&pushConstantRange);
+                                      .setSetLayoutCount(uint32_t(descriptorSetLayouts.size()))
+                                      .setPSetLayouts(descriptorSetLayouts.data())
+                                      .setPushConstantRangeCount(pushConstantSize ? 1 : 0)
+                                      .setPPushConstantRanges(&pushConstantRange);
 
         res = m_Context.device.createPipelineLayout(&pipelineLayoutInfo,
-                                                  m_Context.allocationCallbacks,
-                                                  &pso->pipelineLayout);
+                                                    m_Context.allocationCallbacks,
+                                                    &pso->pipelineLayout);
         CHECK_VK_FAIL(res)
 
-        attachment_vector<vk::PipelineColorBlendAttachmentState> colorBlendAttachments(fb->desc.colorAttachments.size());
+        attachment_vector<vk::PipelineColorBlendAttachmentState> colorBlendAttachments(rp->desc.colorAttachments.size());
 
-        for(uint32_t i = 0; i < uint32_t(fb->desc.colorAttachments.size()); i++)
+        for(uint32_t i = 0; i < uint32_t(rp->desc.colorAttachments.size()); i++)
         {
             colorBlendAttachments[i] = convertBlendState(blendState.targets[i]);
         }
 
         auto colorBlend = vk::PipelineColorBlendStateCreateInfo()
-                            .setAttachmentCount(uint32_t(colorBlendAttachments.size()))
-                            .setPAttachments(colorBlendAttachments.data());
+                              .setAttachmentCount(uint32_t(colorBlendAttachments.size()))
+                              .setPAttachments(colorBlendAttachments.data());
 
-        pso->usesBlendConstants = blendState.usesConstantColor(uint32_t(fb->desc.colorAttachments.size()));
-        
+        pso->usesBlendConstants = blendState.usesConstantColor(uint32_t(rp->desc.colorAttachments.size()));
+
         vk::DynamicState dynamicStates[3] = {
             vk::DynamicState::eViewport,
             vk::DynamicState::eScissor,
@@ -190,33 +190,33 @@ namespace nvrhi::vulkan
         };
 
         auto dynamicStateInfo = vk::PipelineDynamicStateCreateInfo()
-            .setDynamicStateCount(pso->usesBlendConstants ? 3 : 2)
-            .setPDynamicStates(dynamicStates);
+                                    .setDynamicStateCount(pso->usesBlendConstants ? 3 : 2)
+                                    .setPDynamicStates(dynamicStates);
 
         auto pipelineInfo = vk::GraphicsPipelineCreateInfo()
-            .setStageCount(uint32_t(shaderStages.size()))
-            .setPStages(shaderStages.data())
-            //.setPVertexInputState(&vertexInput)
-            .setPInputAssemblyState(&inputAssembly)
-            .setPViewportState(&viewportState)
-            .setPRasterizationState(&rasterizer)
-            .setPMultisampleState(&multisample)
-            .setPDepthStencilState(&depthStencil)
-            .setPColorBlendState(&colorBlend)
-            .setPDynamicState(&dynamicStateInfo)
-            .setLayout(pso->pipelineLayout)
-            .setRenderPass(fb->renderPass)
-            .setSubpass(0)
-            .setBasePipelineHandle(nullptr)
-            .setBasePipelineIndex(-1);
+                                .setStageCount(uint32_t(shaderStages.size()))
+                                .setPStages(shaderStages.data())
+                                //.setPVertexInputState(&vertexInput)
+                                .setPInputAssemblyState(&inputAssembly)
+                                .setPViewportState(&viewportState)
+                                .setPRasterizationState(&rasterizer)
+                                .setPMultisampleState(&multisample)
+                                .setPDepthStencilState(&depthStencil)
+                                .setPColorBlendState(&colorBlend)
+                                .setPDynamicState(&dynamicStateInfo)
+                                .setLayout(pso->pipelineLayout)
+                                .setRenderPass(rp->renderPass)
+                                .setSubpass(0)
+                                .setBasePipelineHandle(nullptr)
+                                .setBasePipelineIndex(-1);
 
         res = m_Context.device.createGraphicsPipelines(m_Context.pipelineCache,
-                                                     1, &pipelineInfo,
-                                                     m_Context.allocationCallbacks,
-                                                     &pso->pipeline);
+                                                       1, &pipelineInfo,
+                                                       m_Context.allocationCallbacks,
+                                                       &pso->pipeline);
         ASSERT_VK_OK(res); // for debugging
         CHECK_VK_FAIL(res)
-        
+
         return MeshletPipelineHandle::Create(pso);
     }
 

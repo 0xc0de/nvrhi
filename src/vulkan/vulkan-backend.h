@@ -669,6 +669,7 @@ namespace nvrhi::vulkan
         std::vector<ResourceHandle> resources;
 
         bool managed = true;
+        bool externalRenderPass = false;
 
         explicit Framebuffer(const VulkanContext& context)
             : m_Context(context)
@@ -678,6 +679,23 @@ namespace nvrhi::vulkan
         const FramebufferDesc& getDesc() const override { return desc; }
         const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
         Object getNativeObject(ObjectType objectType) override;
+
+    private:
+        const VulkanContext& m_Context;
+    };
+
+    class RenderPass : public RefCounter<IRenderPass>
+    {
+    public:
+        RenderPassDesc desc;
+
+        vk::RenderPass renderPass = vk::RenderPass();
+
+        explicit RenderPass(const VulkanContext& context)
+            : m_Context(context)
+        { }
+        ~RenderPass() override;
+        const RenderPassDesc& getDesc() const override { return desc; }
 
     private:
         const VulkanContext& m_Context;
@@ -815,7 +833,7 @@ namespace nvrhi::vulkan
     {
     public:
         MeshletPipelineDesc desc;
-        FramebufferInfo framebufferInfo;
+        //FramebufferInfo framebufferInfo;
         ShaderType shaderMask = ShaderType::None;
         BindingVector<RefCountPtr<BindingLayout>> pipelineBindingLayouts;
         vk::PipelineLayout pipelineLayout;
@@ -828,7 +846,7 @@ namespace nvrhi::vulkan
 
         ~MeshletPipeline() override;
         const MeshletPipelineDesc& getDesc() const override { return desc; }
-        const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
+        //const FramebufferInfo& getFramebufferInfo() const override { return framebufferInfo; }
         Object getNativeObject(ObjectType objectType) override;
 
     private:
@@ -1022,13 +1040,14 @@ namespace nvrhi::vulkan
 
         GraphicsAPI getGraphicsAPI() override;
 
-        FramebufferHandle createFramebuffer(const FramebufferDesc& desc) override;
+        FramebufferHandle createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass) override;
+        RenderPassHandle createRenderPass(const RenderPassDesc& desc) override;
 
-        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IFramebuffer* fb) override;
+        GraphicsPipelineHandle createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass) override;
 
         ComputePipelineHandle createComputePipeline(const ComputePipelineDesc& desc) override;
 
-        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb) override;
+        MeshletPipelineHandle createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass) override;
 
         rt::PipelineHandle createRayTracingPipeline(const rt::PipelineDesc& desc) override;
 
@@ -1073,7 +1092,7 @@ namespace nvrhi::vulkan
 
         // array of submission queues
         std::array<std::unique_ptr<Queue>, uint32_t(CommandQueue::Count)> m_Queues;
-        
+
         void *mapBuffer(IBuffer* b, CpuAccessMode flags, uint64_t offset, size_t size) const;
     };
 

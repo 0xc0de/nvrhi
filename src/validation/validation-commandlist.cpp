@@ -549,6 +549,18 @@ namespace nvrhi::validation
         m_CommandList->setPushConstants(data, byteSize);
     }
 
+    static bool formatsEqual(const static_vector<Format, c_MaxRenderTargets>& a, const static_vector<Format, c_MaxRenderTargets>& b)
+    {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); i++) if (a[i] != b[i]) return false;
+        return true;
+    }
+    static bool isCompatibleFramebuffer(FramebufferInfo const& a, FramebufferInfo const& b)
+    {
+        return formatsEqual(a.colorFormats, b.colorFormats) && a.depthFormat == b.depthFormat && a.sampleCount == b.sampleCount && a.sampleQuality == b.sampleQuality;
+    };
+
+
     void CommandListWrapper::setGraphicsState(const GraphicsState& state)
     {
         if (!requireOpenState())
@@ -610,7 +622,7 @@ namespace nvrhi::validation
         if (!validateBindingSetsAgainstLayouts(state.pipeline->getDesc().bindingLayouts, state.bindings))
             anyErrors = true;
 
-        if (state.framebuffer->getFramebufferInfo() != state.pipeline->getFramebufferInfo())
+        if (!isCompatibleFramebuffer(state.framebuffer->getFramebufferInfo(), state.pipeline->getFramebufferInfo()))
         {
             ss << "The framebuffer used in the draw call does not match the framebuffer used to create the pipeline." << std::endl <<
                 "Width, height, and formats of the framebuffers must match." << std::endl;

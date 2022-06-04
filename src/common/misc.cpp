@@ -166,6 +166,22 @@ namespace nvrhi
         }
     }
     
+    FramebufferInfo::FramebufferInfo(const RenderPassDesc& desc, uint32_t w, uint32_t h)
+    {
+        for (size_t i = 0; i < desc.colorAttachments.size(); i++)
+        {
+            const RenderPassAttachment& attachment = desc.colorAttachments[i];
+            colorFormats.push_back(attachment.format);
+        }
+
+        depthFormat = desc.depthAttachment.format;
+
+        width = w;
+        height = h;
+        sampleCount = desc.sampleCount;
+        sampleQuality = desc.sampleQuality;
+    }
+
     void ICommandList::setResourceStatesForFramebuffer(IFramebuffer* framebuffer)
     {
         const FramebufferDesc& desc = framebuffer->getDesc();

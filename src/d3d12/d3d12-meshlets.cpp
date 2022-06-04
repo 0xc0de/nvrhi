@@ -40,9 +40,11 @@ namespace nvrhi::d3d12
         }
     }
 
-    nvrhi::RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const MeshletPipelineDesc& state, RootSignature* pRS, const FramebufferInfo& fbinfo) const
+    nvrhi::RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const MeshletPipelineDesc& state, RootSignature* pRS, IRenderPass* renderPass) const
     {
         RefCountPtr<ID3D12PipelineState> pipelineState;
+
+        RenderPassDesc const& renderPassDesc = renderPass->getDesc();
 
 #pragma warning(push)
 #pragma warning(disable: 4324) // structure was padded due to alignment specifier
@@ -81,11 +83,11 @@ namespace nvrhi::d3d12
         psoDesc.RootSignature = pRS->handle;
 
         TranslateBlendState(state.renderState.blendState, psoDesc.BlendState);
-        
+
         const DepthStencilState& depthState = state.renderState.depthStencilState;
         TranslateDepthStencilState(depthState, psoDesc.DepthStencilState);
 
-        if ((depthState.depthTestEnable || depthState.stencilEnable) && fbinfo.depthFormat == Format::UNKNOWN)
+        if ((depthState.depthTestEnable || depthState.stencilEnable) && renderPassDesc.depthAttachment.format == Format::UNKNOWN)
         {
             psoDesc.DepthStencilState.DepthEnable = FALSE;
             psoDesc.DepthStencilState.StencilEnable = FALSE;
@@ -96,35 +98,35 @@ namespace nvrhi::d3d12
 
         switch (state.primType)
         {
-        case PrimitiveType::PointList:
-            psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-            break;
-        case PrimitiveType::LineList:
-            psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-            break;
-        case PrimitiveType::TriangleList:
-        case PrimitiveType::TriangleStrip:
-            psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-            break;
-        case PrimitiveType::PatchList:
-            m_Context.error("Unsupported primitive topology for meshlets");
-            return nullptr;
-        default:
-            utils::InvalidEnum();
-            return nullptr;
+            case PrimitiveType::PointList:
+                psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+                break;
+            case PrimitiveType::LineList:
+                psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+                break;
+            case PrimitiveType::TriangleList:
+            case PrimitiveType::TriangleStrip:
+                psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+                break;
+            case PrimitiveType::PatchList:
+                m_Context.error("Unsupported primitive topology for meshlets");
+                return nullptr;
+            default:
+                utils::InvalidEnum();
+                return nullptr;
         }
 
-        psoDesc.SampleDesc.Count = fbinfo.sampleCount;
-        psoDesc.SampleDesc.Quality = fbinfo.sampleQuality;
+        psoDesc.SampleDesc.Count = renderPassDesc.sampleCount;
+        psoDesc.SampleDesc.Quality = renderPassDesc.sampleQuality;
         psoDesc.SampleMask = ~0u;
 
-        for (uint32_t i = 0; i < uint32_t(fbinfo.colorFormats.size()); i++)
+        for (uint32_t i = 0; i < uint32_t(renderPassDesc.colorAttachments.size()); i++)
         {
-            psoDesc.RenderTargets.RTFormats[i] = getDxgiFormatMapping(fbinfo.colorFormats[i]).rtvFormat;
+            psoDesc.RenderTargets.RTFormats[i] = getDxgiFormatMapping(renderPassDesc.colorAttachments[i].format).rtvFormat;
         }
-        psoDesc.RenderTargets.NumRenderTargets = uint32_t(fbinfo.colorFormats.size());
+        psoDesc.RenderTargets.NumRenderTargets = uint32_t(renderPassDesc.colorAttachments.size());
 
-        psoDesc.DSVFormat = getDxgiFormatMapping(fbinfo.depthFormat).rtvFormat;
+        psoDesc.DSVFormat = getDxgiFormatMapping(renderPassDesc.depthAttachment.format).rtvFormat;
 
         if (state.AS)
         {
@@ -155,16 +157,16 @@ namespace nvrhi::d3d12
         return pipelineState;
     }
 
-    MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, IFramebuffer* fb)
+    MeshletPipelineHandle Device::createMeshletPipeline(const MeshletPipelineDesc& desc, IRenderPass* renderPass)
     {
         RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, false);
 
-        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, fb->getFramebufferInfo());
+        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, renderPass);
 
-        return createHandleForNativeMeshletPipeline(pRS, pPSO, desc, fb->getFramebufferInfo());
+        return createHandleForNativeMeshletPipeline(pRS, pPSO, desc, renderPass);
     }
 
-	nvrhi::MeshletPipelineHandle Device::createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, const FramebufferInfo& framebufferInfo)
+    nvrhi::MeshletPipelineHandle Device::createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, IRenderPass* renderPass)
     {
         if (rootSignature == nullptr)
             return nullptr;
@@ -174,10 +176,10 @@ namespace nvrhi::d3d12
 
         MeshletPipeline *pso = new MeshletPipeline();
         pso->desc = desc;
-        pso->framebufferInfo = framebufferInfo;
+        //pso->framebufferInfo = framebufferInfo; //!!!
         pso->rootSignature = checked_cast<RootSignature*>(rootSignature);
         pso->pipelineState = pipelineState;
-        pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(pso->framebufferInfo.colorFormats.size()));
+        pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(renderPass->getDesc().colorAttachments.size()));
 
         return MeshletPipelineHandle::Create(pso);
     }

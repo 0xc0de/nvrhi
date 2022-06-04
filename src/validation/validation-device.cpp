@@ -579,9 +579,9 @@ namespace nvrhi::validation
         return m_Device->getGraphicsAPI();
     }
 
-    FramebufferHandle DeviceWrapper::createFramebuffer(const FramebufferDesc& desc)
+    FramebufferHandle DeviceWrapper::createFramebuffer(const static_vector<ITexture*, c_MaxRenderTargets>& colorAttachments, ITexture* depthStencilAttachment, ITexture* shadingRateAttachment, IRenderPass* renderPass)
     {
-        return m_Device->createFramebuffer(desc);
+        return m_Device->createFramebuffer(colorAttachments, depthStencilAttachment, shadingRateAttachment, renderPass);
     }
 
     template<typename DescType>
@@ -964,23 +964,23 @@ namespace nvrhi::validation
         return false;
     }
 
-    bool DeviceWrapper::validateRenderState(const RenderState& renderState, IFramebuffer* fb) const
+    bool DeviceWrapper::validateRenderState(const RenderState& renderState, IRenderPass* renderPass) const
     {
-        if (!fb)
+        if (!renderPass)
         {
-            error("framebuffer is NULL");
+            error("render pass is NULL");
             return false;
         }
 
-        const auto fbDesc = fb->getDesc();
+        const auto rpDesc = renderPass->getDesc();
 
         if (renderState.depthStencilState.depthTestEnable ||
             renderState.depthStencilState.stencilEnable)
         {
-            if (!fbDesc.depthAttachment.valid())
+            if (rpDesc.depthAttachment.format == Format::UNKNOWN)
             {
                 error("The depth-stencil state indicates that depth or stencil operations are used, "
-                    "but the framebuffer has no depth attachment.");
+                      "but the framebuffer has no depth attachment.");
                 return false;
             }
         }
@@ -988,26 +988,26 @@ namespace nvrhi::validation
         if ((renderState.depthStencilState.depthTestEnable && renderState.depthStencilState.depthWriteEnable) ||
             (renderState.depthStencilState.stencilEnable && renderState.depthStencilState.stencilWriteMask != 0))
         {
-            if (fbDesc.depthAttachment.isReadOnly)
+            if (rpDesc.depthAttachment.isReadOnly)
             {
                 error("The depth-stencil state indicates that depth or stencil writes are used, "
-                    "but the framebuffer's depth attachment is read-only.");
+                      "but the framebuffer's depth attachment is read-only.");
                 return false;
             }
         }
         else if (renderState.depthStencilState.depthTestEnable ||renderState.depthStencilState.stencilEnable)
         {
-            if (!fbDesc.depthAttachment.isReadOnly)
+            if (!rpDesc.depthAttachment.isReadOnly)
             {
                 warning("The depth-stencil state indicates read-only depth and stencil, "
-                    "but the framebuffer has a read-write depth attachment, which is suboptimal.");
+                        "but the framebuffer has a read-write depth attachment, which is suboptimal.");
             }
         }
 
         return true;
     }
 
-    GraphicsPipelineHandle DeviceWrapper::createGraphicsPipeline(const GraphicsPipelineDesc& pipelineDesc, IFramebuffer* fb)
+    GraphicsPipelineHandle DeviceWrapper::createGraphicsPipeline(const GraphicsPipelineDesc& pipelineDesc, IRenderPass* renderPass)
     {
         std::vector<IShader*> shaders;
 
@@ -1026,10 +1026,17 @@ namespace nvrhi::validation
         if (!validatePipelineBindingLayouts(pipelineDesc.bindingLayouts, shaders, m_Device->getGraphicsAPI()))
             return nullptr;
 
-        if (!validateRenderState(pipelineDesc.renderState, fb))
+        if (!validateRenderState(pipelineDesc.renderState, renderPass))
             return nullptr;
 
-        return m_Device->createGraphicsPipeline(pipelineDesc, fb);
+        return m_Device->createGraphicsPipeline(pipelineDesc, renderPass);
+    }
+
+    RenderPassHandle DeviceWrapper::createRenderPass(const RenderPassDesc& desc)
+    {
+        // TODO: Perform some validation here
+
+        return m_Device->createRenderPass(desc);
     }
 
     ComputePipelineHandle DeviceWrapper::createComputePipeline(const ComputePipelineDesc& pipelineDesc)
@@ -1051,7 +1058,8 @@ namespace nvrhi::validation
         return m_Device->createComputePipeline(pipelineDesc);
     }
 
-    MeshletPipelineHandle DeviceWrapper::createMeshletPipeline(const MeshletPipelineDesc& pipelineDesc, IFramebuffer* fb)
+
+    MeshletPipelineHandle DeviceWrapper::createMeshletPipeline(const MeshletPipelineDesc& pipelineDesc, IRenderPass* renderPass)
     {
         std::vector<IShader*> shaders;
 
@@ -1070,10 +1078,10 @@ namespace nvrhi::validation
         if (!validatePipelineBindingLayouts(pipelineDesc.bindingLayouts, shaders, m_Device->getGraphicsAPI()))
             return nullptr;
 
-        if (!validateRenderState(pipelineDesc.renderState, fb))
+        if (!validateRenderState(pipelineDesc.renderState, renderPass))
             return nullptr;
 
-        return m_Device->createMeshletPipeline(pipelineDesc, fb);
+        return m_Device->createMeshletPipeline(pipelineDesc, renderPass);
     }
 
     nvrhi::rt::PipelineHandle DeviceWrapper::createRayTracingPipeline(const rt::PipelineDesc& desc)
