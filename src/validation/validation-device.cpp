@@ -524,11 +524,6 @@ namespace nvrhi::validation
         return m_Device->createSampler(d);
     }
 
-    InputLayoutHandle DeviceWrapper::createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader)
-    {
-        return m_Device->createInputLayout(d, attributeCount, vertexShader);
-    }
-
     EventQueryHandle DeviceWrapper::createEventQuery()
     {
         return m_Device->createEventQuery();

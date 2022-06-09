@@ -94,6 +94,67 @@ namespace nvrhi::d3d11
         rp->desc = desc;
         return RenderPassHandle::Create(rp);
     }
+
+    RefCountPtr<ID3D11InputLayout> Device::createInputLayout(const VertexAttributeDesc* vertexAttributes, uint32_t vertexAttributeCount, IShader* _vertexShader)
+    {
+        Shader* vertexShader = checked_cast<Shader*>(_vertexShader);
+
+        if (vertexShader == nullptr)
+        {
+            m_Context.error("No vertex shader provided to createInputLayout");
+            return nullptr;
+        }
+
+        if (vertexShader->desc.shaderType != ShaderType::Vertex)
+        {
+            m_Context.error("A non-vertex shader provided to createInputLayout");
+            return nullptr;
+        }
+
+        uint32_t numInputSlots = 0;
+
+        static_vector<D3D11_INPUT_ELEMENT_DESC, c_MaxVertexAttributes> elementDesc;
+        for (uint32_t i = 0; i < vertexAttributeCount; i++)
+        {
+            const VertexAttributeDesc& attr = vertexAttributes[i];
+
+            assert(attr.arraySize > 0);
+
+            const DxgiFormatMapping& formatMapping = getDxgiFormatMapping(attr.format);
+            const FormatInfo& formatInfo = getFormatInfo(attr.format);
+
+            if (numInputSlots < attr.bufferIndex + 1)
+                numInputSlots = attr.bufferIndex + 1;
+
+            for (uint32_t semanticIndex = 0; semanticIndex < attr.arraySize; semanticIndex++)
+            {
+                D3D11_INPUT_ELEMENT_DESC desc;
+
+                desc.SemanticName = attr.name.c_str();
+                desc.SemanticIndex = semanticIndex;
+                desc.Format = formatMapping.srvFormat;
+                desc.InputSlot = attr.bufferIndex;
+                desc.AlignedByteOffset = attr.offset + semanticIndex * formatInfo.bytesPerBlock;
+                desc.InputSlotClass = attr.isInstanced ? D3D11_INPUT_PER_INSTANCE_DATA : D3D11_INPUT_PER_VERTEX_DATA;
+                desc.InstanceDataStepRate = attr.isInstanced ? 1 : 0;
+
+                elementDesc.push_back(desc);
+            }
+        }
+
+        RefCountPtr<ID3D11InputLayout> layout;
+
+        const HRESULT res = m_Context.device->CreateInputLayout(elementDesc.data(), uint32_t(elementDesc.size()), vertexShader->bytecode.data(), vertexShader->bytecode.size(), &layout);
+        if (FAILED(res))
+        {
+            std::stringstream ss;
+            ss << "CreateInputLayout call failed for shader " << utils::DebugNameToString(vertexShader->desc.debugName)
+                << ", HRESULT = 0x" << std::hex << std::setw(8) << res;
+            m_Context.error(ss.str());
+        }
+
+        return layout;
+    }
     
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass)
     {
@@ -105,12 +166,49 @@ namespace nvrhi::d3d11
             return nullptr;
         }
 
+        RefCountPtr<ID3D11InputLayout> inputLayout;
+        if (desc.vertexAttributeCount)
+        {
+            inputLayout = createInputLayout(desc.vertexAttributes, desc.vertexAttributeCount, desc.VS);
+            if (!inputLayout)
+                return nullptr;
+        }
+
         GraphicsPipeline *pso = new GraphicsPipeline();
         pso->desc = desc;
         pso->framebufferInfo = FramebufferInfo(renderPass->getDesc(), 0, 0);// framebufferInfo; //!!!
 
         pso->primitiveTopology = convertPrimType(desc.primType, desc.patchControlPoints);
-        pso->inputLayout = checked_cast<InputLayout*>(desc.inputLayout.Get());
+        pso->inputLayout = std::move(inputLayout);
+
+        if (desc.vertexAttributeCount)
+        {
+            uint32_t numInputSlots = 0;
+            for (uint32_t i = 0; i < desc.vertexAttributeCount; i++)
+            {
+                const VertexAttributeDesc& attr = desc.vertexAttributes[i];
+
+                if (numInputSlots < attr.bufferIndex + 1)
+                    numInputSlots = attr.bufferIndex + 1;
+            }
+
+            std::vector<uint32_t>& elementStrides = pso->elementStrides;
+            elementStrides.resize(numInputSlots);
+            std::memset(elementStrides.data(), 0xff, sizeof(uint32_t) * elementStrides.size());
+            for (uint32_t i = 0; i < desc.vertexAttributeCount; i++)
+            {
+                const auto index = desc.vertexAttributes[i].bufferIndex;
+
+                if (elementStrides[index] == 0xffffffff)
+                {
+                    elementStrides[index] = desc.vertexAttributes[i].elementStride;
+                }
+                else
+                {
+                    assert(elementStrides[index] == desc.vertexAttributes[i].elementStride);
+                }
+            }
+        }
 
         pso->pRS = getRasterizerState(renderState.rasterState);
         pso->pBlendState = getBlendState(renderState.blendState);
@@ -153,7 +251,7 @@ namespace nvrhi::d3d11
     void CommandList::bindGraphicsPipeline(const GraphicsPipeline* pso) const
     {
         m_Context.immediateContext->IASetPrimitiveTopology(pso->primitiveTopology);
-        m_Context.immediateContext->IASetInputLayout(pso->inputLayout ? pso->inputLayout->layout : nullptr);
+        m_Context.immediateContext->IASetInputLayout(pso->inputLayout);
 
         m_Context.immediateContext->RSSetState(pso->pRS);
 
@@ -329,13 +427,12 @@ namespace nvrhi::d3d11
             UINT pVertexBufferStrides[c_MaxVertexAttributes] = {};
             UINT pVertexBufferOffsets[c_MaxVertexAttributes] = {};
 
-            const auto *inputLayout = pipeline->inputLayout;
             for (size_t i = 0; i < state.vertexBuffers.size(); i++)
             {
                 const VertexBufferBinding& binding = state.vertexBuffers[i];
 
                 pVertexBuffers[i] = checked_cast<Buffer*>(binding.buffer)->resource;
-                pVertexBufferStrides[i] = inputLayout->elementStrides.at(binding.slot);
+                pVertexBufferStrides[i] = pipeline->elementStrides[binding.slot];
                 assert(binding.offset <= UINT_MAX);
                 pVertexBufferOffsets[i] = UINT(binding.offset);
             }

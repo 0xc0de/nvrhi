@@ -363,8 +363,6 @@ namespace nvrhi::vulkan
 
         RenderPass* rp = checked_cast<RenderPass*>(renderPass);
 
-        InputLayout* inputLayout = checked_cast<InputLayout*>(desc.inputLayout.Get());
-
         GraphicsPipeline *pso = new GraphicsPipeline(m_Context);
         pso->desc = desc;
         pso->framebufferInfo = FramebufferInfo(rp->desc, 0, 0);// rp->framebufferInfo;
@@ -443,12 +441,72 @@ namespace nvrhi::vulkan
 
         // set up vertex input state
         auto vertexInput = vk::PipelineVertexInputStateCreateInfo();
-        if (inputLayout)
+
+        std::vector<vk::VertexInputBindingDescription> bindingDesc;
+        std::vector<vk::VertexInputAttributeDescription> attributeDesc;
+
+        if (desc.vertexAttributeCount)
         {
-            vertexInput.setVertexBindingDescriptionCount(uint32_t(inputLayout->bindingDesc.size()))
-                .setPVertexBindingDescriptions(inputLayout->bindingDesc.data())
-                .setVertexAttributeDescriptionCount(uint32_t(inputLayout->attributeDesc.size()))
-                .setPVertexAttributeDescriptions(inputLayout->attributeDesc.data());
+            int total_attribute_array_size = 0;
+
+            // collect all buffer bindings
+            std::unordered_map<uint32_t, vk::VertexInputBindingDescription> bindingMap;
+            for (uint32_t i = 0; i < desc.vertexAttributeCount; i++)
+            {
+                const VertexAttributeDesc& attr = desc.vertexAttributes[i];
+
+                assert(attr.arraySize > 0);
+
+                total_attribute_array_size += attr.arraySize;
+
+                if (bindingMap.find(attr.bufferIndex) == bindingMap.end())
+                {
+                    bindingMap[attr.bufferIndex] = vk::VertexInputBindingDescription()
+                        .setBinding(attr.bufferIndex)
+                        .setStride(attr.elementStride)
+                        .setInputRate(attr.isInstanced ? vk::VertexInputRate::eInstance : vk::VertexInputRate::eVertex);
+                }
+                else {
+                    assert(bindingMap[attr.bufferIndex].stride == attr.elementStride);
+                    assert(bindingMap[attr.bufferIndex].inputRate == (attr.isInstanced ? vk::VertexInputRate::eInstance : vk::VertexInputRate::eVertex));
+                }
+            }
+
+            for (const auto& b : bindingMap)
+            {
+                bindingDesc.push_back(b.second);
+            }
+
+            // build attribute descriptions
+            attributeDesc.resize(total_attribute_array_size);
+
+            uint32_t attributeLocation = 0;
+            for (uint32_t i = 0; i < desc.vertexAttributeCount; i++)
+            {
+                const VertexAttributeDesc& attr = desc.vertexAttributes[i];
+
+                uint32_t element_size_bytes = getFormatInfo(attr.format).bytesPerBlock;
+
+                uint32_t bufferOffset = 0;
+
+                for (uint32_t slot = 0; slot < attr.arraySize; ++slot)
+                {
+                    auto& outAttrib = attributeDesc[attributeLocation];
+
+                    outAttrib.location = attributeLocation;
+                    outAttrib.binding = attr.bufferIndex;
+                    outAttrib.format = vulkan::convertFormat(attr.format);
+                    outAttrib.offset = bufferOffset + attr.offset;
+                    bufferOffset += element_size_bytes;
+
+                    ++attributeLocation;
+                }
+            }
+
+            vertexInput.setVertexBindingDescriptionCount(uint32_t(bindingDesc.size()))
+                .setPVertexBindingDescriptions(bindingDesc.data())
+                .setVertexAttributeDescriptionCount(uint32_t(attributeDesc.size()))
+                .setPVertexAttributeDescriptions(attributeDesc.data());
         }
 
         auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo()

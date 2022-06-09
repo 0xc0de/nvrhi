@@ -41,7 +41,7 @@ namespace nvrhi::d3d12
         }
     }
 
-    RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const GraphicsPipelineDesc & state, RootSignature* pRS, IRenderPass* renderPass) const
+    RefCountPtr<ID3D12PipelineState> Device::createPipelineState(const GraphicsPipelineDesc & state, RootSignature* pRS, IRenderPass* renderPass, const std::vector<D3D12_INPUT_ELEMENT_DESC>& inputElements) const
     {
         RenderPassDesc const& renderPassDesc = renderPass->getDesc();
 
@@ -114,11 +114,10 @@ namespace nvrhi::d3d12
             desc.RTVFormats[i] = getDxgiFormatMapping(renderPassDesc.colorAttachments[i].format).rtvFormat;
         }
 
-        InputLayout* inputLayout = checked_cast<InputLayout*>(state.inputLayout.Get());
-        if (inputLayout && !inputLayout->inputElements.empty())
+        if (!inputElements.empty())
         {
-            desc.InputLayout.NumElements = uint32_t(inputLayout->inputElements.size());
-            desc.InputLayout.pInputElementDescs = &(inputLayout->inputElements[0]);
+            desc.InputLayout.NumElements = uint32_t(inputElements.size());
+            desc.InputLayout.pInputElementDescs = &inputElements[0];
         }
 
         desc.NumRenderTargets = uint32_t(renderPassDesc.colorAttachments.size());
@@ -178,14 +177,74 @@ namespace nvrhi::d3d12
 
     GraphicsPipelineHandle Device::createGraphicsPipeline(const GraphicsPipelineDesc& desc, IRenderPass* renderPass)
     {
-        RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, desc.inputLayout != nullptr);
+        RefCountPtr<RootSignature> pRS = getRootSignature(desc.bindingLayouts, desc.vertexAttributeCount != 0);
 
-        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, renderPass);
+        std::vector<D3D12_INPUT_ELEMENT_DESC> inputElements;
 
-        return createHandleForNativeGraphicsPipeline(pRS, pPSO, desc, renderPass);
+        uint32_t numInputSlots = 0;
+        for (uint32_t index = 0; index < desc.vertexAttributeCount; index++)
+        {
+            const VertexAttributeDesc& attr = desc.vertexAttributes[index];
+
+            if (numInputSlots < attr.bufferIndex + 1)
+                numInputSlots = attr.bufferIndex + 1;
+        }
+
+        std::vector<uint32_t> elementStrides(numInputSlots);
+        std::memset(elementStrides.data(), 0xff, sizeof(uint32_t) * elementStrides.size());
+
+        for (uint32_t index = 0; index < desc.vertexAttributeCount; index++)
+        {
+            const VertexAttributeDesc& attr = desc.vertexAttributes[index];
+
+            // Copy the description to get a stable name pointer in desc
+            //attr = d[index];
+
+            assert(attr.arraySize > 0);
+
+            const DxgiFormatMapping& formatMapping = getDxgiFormatMapping(attr.format);
+            const FormatInfo& formatInfo = getFormatInfo(attr.format);
+
+            for (uint32_t semanticIndex = 0; semanticIndex < attr.arraySize; semanticIndex++)
+            {
+                D3D12_INPUT_ELEMENT_DESC element;
+
+                element.SemanticName = attr.name.c_str();
+                element.AlignedByteOffset = attr.offset + semanticIndex * formatInfo.bytesPerBlock;
+                element.Format = formatMapping.srvFormat;
+                element.InputSlot = attr.bufferIndex;
+                element.SemanticIndex = semanticIndex;
+
+                if (attr.isInstanced)
+                {
+                    element.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA;
+                    element.InstanceDataStepRate = 1;
+                }
+                else
+                {
+                    element.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+                    element.InstanceDataStepRate = 0;
+                }
+
+                inputElements.push_back(element);
+            }
+
+            if (elementStrides[attr.bufferIndex] == 0xffffffff)
+            {
+                elementStrides[attr.bufferIndex] = attr.elementStride;
+            }
+            else
+            {
+                assert(elementStrides[attr.bufferIndex] == attr.elementStride);
+            }
+        }
+
+        RefCountPtr<ID3D12PipelineState> pPSO = createPipelineState(desc, pRS, renderPass, inputElements);
+
+        return createHandleForNativeGraphicsPipeline(pRS, pPSO, desc, renderPass, elementStrides);
     }
 
-    nvrhi::GraphicsPipelineHandle Device::createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, IRenderPass* renderPass)
+    nvrhi::GraphicsPipelineHandle Device::createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, IRenderPass* renderPass, const std::vector<uint32_t>& elementStrides)
     {
         if (rootSignature == nullptr)
             return nullptr;
@@ -199,6 +258,7 @@ namespace nvrhi::d3d12
         pso->rootSignature = checked_cast<RootSignature*>(rootSignature);
         pso->pipelineState = pipelineState;
         pso->requiresBlendFactor = desc.renderState.blendState.usesConstantColor(uint32_t(renderPass->getDesc().colorAttachments.size()));
+        pso->elementStrides = elementStrides;
 
         return GraphicsPipelineHandle::Create(pso);
     }
@@ -407,8 +467,6 @@ namespace nvrhi::d3d12
         {
             D3D12_VERTEX_BUFFER_VIEW VBVs[16] = {};
 
-            InputLayout* inputLayout = checked_cast<InputLayout*>(pso->desc.inputLayout.Get());
-
             for (size_t i = 0; i < state.vertexBuffers.size(); i++)
             {
                 const VertexBufferBinding& binding = state.vertexBuffers[i];
@@ -420,7 +478,7 @@ namespace nvrhi::d3d12
                     requireBufferState(buffer, ResourceStates::VertexBuffer);
                 }
 
-                VBVs[binding.slot].StrideInBytes = inputLayout->elementStrides[binding.slot];
+                VBVs[binding.slot].StrideInBytes = pso->elementStrides[binding.slot];
                 VBVs[binding.slot].SizeInBytes = (UINT)(std::min(buffer->desc.byteSize - binding.offset, (uint64_t)ULONG_MAX));
                 VBVs[binding.slot].BufferLocation = buffer->gpuVA + binding.offset;
 

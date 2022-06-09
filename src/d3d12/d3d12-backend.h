@@ -348,19 +348,6 @@ namespace nvrhi::d3d12
         D3D12_SAMPLER_DESC m_d3d12desc;
     };
 
-    class InputLayout : public RefCounter<IInputLayout>
-    {
-    public:
-        std::vector<VertexAttributeDesc> attributes;
-        std::vector<D3D12_INPUT_ELEMENT_DESC> inputElements;
-
-        // maps a binding slot to an element stride
-        std::unordered_map<uint32_t, uint32_t> elementStrides;
-        
-        uint32_t getNumAttributes() const override;
-        const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
-    };
-
     class EventQuery : public RefCounter<IEventQuery>
     {
     public:
@@ -495,6 +482,8 @@ namespace nvrhi::d3d12
     public:
         GraphicsPipelineDesc desc;
         FramebufferInfo framebufferInfo;
+
+        std::vector<uint32_t> elementStrides;
 
         RefCountPtr<RootSignature> rootSignature;
         RefCountPtr<ID3D12PipelineState> pipelineState;
@@ -1029,8 +1018,6 @@ namespace nvrhi::d3d12
 
         SamplerHandle createSampler(const SamplerDesc& d) override;
 
-        InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) override;
-
         EventQueryHandle createEventQuery() override;
         void setEventQuery(IEventQuery* query, CommandQueue queue) override;
         bool pollEventQuery(IEventQuery* query) override;
@@ -1081,7 +1068,7 @@ namespace nvrhi::d3d12
         // d3d12::IDevice implementation
 
         RootSignatureHandle buildRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout, bool isLocal, const D3D12_ROOT_PARAMETER1* pCustomParameters = nullptr, uint32_t numCustomParameters = 0) override;
-        GraphicsPipelineHandle createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, IRenderPass* renderPass) override;
+        GraphicsPipelineHandle createHandleForNativeGraphicsPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const GraphicsPipelineDesc& desc, IRenderPass* renderPass, const std::vector<uint32_t>& elementStrides) override;
         MeshletPipelineHandle createHandleForNativeMeshletPipeline(IRootSignature* rootSignature, ID3D12PipelineState* pipelineState, const MeshletPipelineDesc& desc, IRenderPass* renderPass) override;
         IDescriptorHeap* getDescriptorHeap(DescriptorHeapType heapType) override;
 
@@ -1113,8 +1100,7 @@ namespace nvrhi::d3d12
         D3D12_FEATURE_DATA_D3D12_OPTIONS7 m_Options7 = {};
 
         RefCountPtr<RootSignature> getRootSignature(const static_vector<BindingLayoutHandle, c_MaxBindingLayouts>& pipelineLayouts, bool allowInputLayout);
-        RefCountPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, const FramebufferInfo& fbinfo) const;
-        RefCountPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, IRenderPass* renderPass) const;
+        RefCountPtr<ID3D12PipelineState> createPipelineState(const GraphicsPipelineDesc& desc, RootSignature* pRS, IRenderPass* renderPass, const std::vector<D3D12_INPUT_ELEMENT_DESC>& inputElements) const;
         RefCountPtr<ID3D12PipelineState> createPipelineState(const ComputePipelineDesc& desc, RootSignature* pRS) const;
         RefCountPtr<ID3D12PipelineState> createPipelineState(const MeshletPipelineDesc& desc, RootSignature* pRS, IRenderPass* renderPass) const;
     };

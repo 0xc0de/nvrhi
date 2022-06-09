@@ -159,19 +159,6 @@ namespace nvrhi::d3d11
         float time = 0.f;
     };
     
-    class InputLayout : public RefCounter<IInputLayout>
-    {
-    public:
-        RefCountPtr<ID3D11InputLayout> layout;
-        std::vector<VertexAttributeDesc> attributes;
-        // maps a binding slot number to a stride
-        std::unordered_map<uint32_t, uint32_t> elementStrides;
-
-        uint32_t getNumAttributes() const override { return uint32_t(attributes.size()); }
-        const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
-    };
-
-
     class Framebuffer : public RefCounter<IFramebuffer>
     {
     public:
@@ -211,7 +198,8 @@ namespace nvrhi::d3d11
         FramebufferInfo framebufferInfo;
 
         D3D11_PRIMITIVE_TOPOLOGY primitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
-        InputLayout *inputLayout = nullptr;
+        RefCountPtr<ID3D11InputLayout> inputLayout;
+        std::vector<uint32_t> elementStrides;
 
         ID3D11RasterizerState *pRS = nullptr;
 
@@ -447,8 +435,6 @@ namespace nvrhi::d3d11
 
         SamplerHandle createSampler(const SamplerDesc& d) override;
 
-        InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) override;
-
         // event queries
         EventQueryHandle createEventQuery(void) override;
         void setEventQuery(IEventQuery* query, CommandQueue queue) override;
@@ -509,6 +495,8 @@ namespace nvrhi::d3d11
 
         bool m_SinglePassStereoSupported = false;
         bool m_FastGeometryShaderSupported = false;
+
+        RefCountPtr<ID3D11InputLayout> createInputLayout(const VertexAttributeDesc* vertexAttributes, uint32_t vertexAttributeCount, IShader* _vertexShader);
 
         TextureHandle createTexture(const TextureDesc& d, CpuAccessMode cpuAccess) const;
 

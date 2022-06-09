@@ -560,15 +560,6 @@ namespace nvrhi
         constexpr VertexAttributeDesc& setIsInstanced(bool value) { isInstanced = value; return *this; }
     };
 
-    class IInputLayout : public IResource
-    {
-    public:
-        [[nodiscard]] virtual uint32_t getNumAttributes() const = 0;
-        [[nodiscard]] virtual const VertexAttributeDesc* getAttributeDesc(uint32_t index) const = 0;
-    };
-
-    typedef RefCountPtr<IInputLayout> InputLayoutHandle;
-
     //////////////////////////////////////////////////////////////////////////
     // Buffer
     //////////////////////////////////////////////////////////////////////////
@@ -1994,7 +1985,9 @@ namespace nvrhi
     {
         PrimitiveType primType = PrimitiveType::TriangleList;
         uint32_t patchControlPoints = 0;
-        InputLayoutHandle inputLayout;
+
+        const VertexAttributeDesc* vertexAttributes = nullptr;
+        uint32_t vertexAttributeCount = 0;
 
         ShaderHandle VS;
         ShaderHandle HS;
@@ -2009,7 +2002,7 @@ namespace nvrhi
         
         GraphicsPipelineDesc& setPrimType(PrimitiveType value) { primType = value; return *this; }
         GraphicsPipelineDesc& setPatchControlPoints(uint32_t value) { patchControlPoints = value; return *this; }
-        GraphicsPipelineDesc& setInputLayout(IInputLayout* value) { inputLayout = value; return *this; }
+        GraphicsPipelineDesc& setVertexAttributes(const VertexAttributeDesc* attributes, uint32_t count) { vertexAttributes = attributes; vertexAttributeCount = count; return *this; }
         GraphicsPipelineDesc& setVertexShader(IShader* value) { VS = value; return *this; }
         GraphicsPipelineDesc& setHullShader(IShader* value) { HS = value; return *this; }
         GraphicsPipelineDesc& setTessellationControlShader(IShader* value) { HS = value; return *this; }
@@ -2534,9 +2527,6 @@ namespace nvrhi
         
         virtual SamplerHandle createSampler(const SamplerDesc& d) = 0;
 
-        // Note: vertexShader is only necessary on D3D11, otherwise it may be null
-        virtual InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) = 0;
-        
         // Event queries
         virtual EventQueryHandle createEventQuery() = 0;
         virtual void setEventQuery(IEventQuery* query, CommandQueue queue) = 0;

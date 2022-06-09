@@ -272,8 +272,6 @@ namespace nvrhi::validation
 
         SamplerHandle createSampler(const SamplerDesc& d) override;
 
-        InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) override;
-
         // event queries
         EventQueryHandle createEventQuery() override;
         void setEventQuery(IEventQuery* query, CommandQueue queue) override;

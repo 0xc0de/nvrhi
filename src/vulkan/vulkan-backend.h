@@ -61,7 +61,6 @@ namespace nvrhi::vulkan
 {
     class Texture;
     class StagingTexture;
-    class InputLayout;
     class Buffer;
     class Shader;
     class Sampler;
@@ -618,18 +617,6 @@ namespace nvrhi::vulkan
         const VulkanContext& m_Context;
     };
 
-    class InputLayout : public RefCounter<IInputLayout>
-    {
-    public:
-        std::vector<VertexAttributeDesc> inputDesc;
-
-        std::vector<vk::VertexInputBindingDescription> bindingDesc;
-        std::vector<vk::VertexInputAttributeDescription> attributeDesc;
-        
-        uint32_t getNumAttributes() const override;
-        const VertexAttributeDesc* getAttributeDesc(uint32_t index) const override;
-    };
-
     class EventQuery : public RefCounter<IEventQuery>
     {
     public:
@@ -1022,8 +1009,6 @@ namespace nvrhi::vulkan
         ShaderLibraryHandle createShaderLibrary(const void* binary, size_t binarySize) override;
 
         SamplerHandle createSampler(const SamplerDesc& d) override;
-
-        InputLayoutHandle createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* vertexShader) override;
 
         // event queries
         EventQueryHandle createEventQuery() override;

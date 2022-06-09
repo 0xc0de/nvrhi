@@ -36,14 +36,6 @@ namespace nvrhi::d3d11
         if (pSize) *pSize = bytecode.size();
     }
     
-    const VertexAttributeDesc* InputLayout::getAttributeDesc(uint32_t index) const
-    {
-        if (index < uint32_t(attributes.size()))
-            return &attributes[index];
-
-        return nullptr;
-    }
-
 #if NVRHI_D3D11_WITH_NVAPI
     static bool convertCustomSemantics(uint32_t numSemantics, const CustomSemantic* semantics, std::vector<NV_CUSTOM_SEMANTIC>& output)
     {
@@ -302,76 +294,6 @@ namespace nvrhi::d3d11
     {
         utils::NotSupported();
         return nullptr;
-    }
-
-    InputLayoutHandle Device::createInputLayout(const VertexAttributeDesc* d, uint32_t attributeCount, IShader* _vertexShader)
-    {
-        Shader* vertexShader = checked_cast<Shader*>(_vertexShader);
-
-        if (vertexShader == nullptr)
-        {
-            m_Context.error("No vertex shader provided to createInputLayout");
-            return nullptr;
-        }
-
-        if (vertexShader->desc.shaderType != ShaderType::Vertex)
-        {
-            m_Context.error("A non-vertex shader provided to createInputLayout");
-            return nullptr;
-        }
-
-        InputLayout *inputLayout = new InputLayout();
-
-        inputLayout->attributes.resize(attributeCount);
-
-        static_vector<D3D11_INPUT_ELEMENT_DESC, c_MaxVertexAttributes> elementDesc;
-        for (uint32_t i = 0; i < attributeCount; i++)
-        {
-            inputLayout->attributes[i] = d[i];
-
-            assert(d[i].arraySize > 0);
-
-            const DxgiFormatMapping& formatMapping = getDxgiFormatMapping(d[i].format);
-            const FormatInfo& formatInfo = getFormatInfo(d[i].format);
-
-            for (uint32_t semanticIndex = 0; semanticIndex < d[i].arraySize; semanticIndex++)
-            {
-                D3D11_INPUT_ELEMENT_DESC desc;
-
-                desc.SemanticName = d[i].name.c_str();
-                desc.SemanticIndex = semanticIndex;
-                desc.Format = formatMapping.srvFormat;
-                desc.InputSlot = d[i].bufferIndex;
-                desc.AlignedByteOffset = d[i].offset + semanticIndex * formatInfo.bytesPerBlock;
-                desc.InputSlotClass = d[i].isInstanced ? D3D11_INPUT_PER_INSTANCE_DATA : D3D11_INPUT_PER_VERTEX_DATA;
-                desc.InstanceDataStepRate = d[i].isInstanced ? 1 : 0;
-
-                elementDesc.push_back(desc);
-            }
-        }
-
-        const HRESULT res = m_Context.device->CreateInputLayout(elementDesc.data(), uint32_t(elementDesc.size()), vertexShader->bytecode.data(), vertexShader->bytecode.size(), &inputLayout->layout);
-        if (FAILED(res))
-        {
-            std::stringstream ss;
-            ss << "CreateInputLayout call failed for shader " << utils::DebugNameToString(vertexShader->desc.debugName)
-                << ", HRESULT = 0x" << std::hex << std::setw(8) << res;
-            m_Context.error(ss.str());
-        }
-
-        for(uint32_t i = 0; i < attributeCount; i++)
-        {
-            const auto index = d[i].bufferIndex;
-
-            if (inputLayout->elementStrides.find(index) == inputLayout->elementStrides.end())
-            {
-                inputLayout->elementStrides[index] = d[i].elementStride;
-            } else {
-                assert(inputLayout->elementStrides[index] == d[i].elementStride);
-            }
-        }
-
-        return InputLayoutHandle::Create(inputLayout);
     }
 
 } // nanmespace nvrhi::d3d11
